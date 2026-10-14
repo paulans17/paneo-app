@@ -1,5 +1,5 @@
 /* paNeo · Service Worker: shell en caché y red primero para la API */
-var VERSION = 'paneo-v3';
+var VERSION = 'paneo-v4';
 var SHELL = [
   './',
   'index.html',

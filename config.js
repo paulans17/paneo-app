@@ -1,6 +1,6 @@
 // URL de la aplicación web de Google Apps Script (acaba en /exec).
 // Mientras no la pegues, la app y la web funcionan con los datos de respaldo de abajo.
-const API_URL = "PEGAR_AQUI_URL_APPS_SCRIPT";
+const API_URL = "https://script.google.com/macros/s/AKfycbxUcOTNEX2LVnMBxDtao9VIKpkZTZFTXaHmkyDp2ATpdUya5aHJKvXaOVie7kfy32mJsQ/exec";
 
 // ---------------------------------------------------------------------------
 // Datos de respaldo (modo demo). Solo se usan si API_URL no está puesta o si
