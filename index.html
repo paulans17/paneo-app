@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>paNeo</title>
+<meta name="description" content="La app de paNeo: encargos, sellos, favoritos y recomendaciones.">
+<meta name="theme-color" content="#3E1A0E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="paNeo">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gloock&family=Jost:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="phone" id="phone">
+
+  <!-- LOGIN -->
+  <section class="login" id="login" hidden>
+    <div class="login-logo"><img src="assets/logo-paneo.jpg" alt="paNeo"></div>
+    <p class="login-sub">Pan para todos</p>
+    <form class="login-form" id="loginForm" autocomplete="off" novalidate>
+      <label>ID de cliente
+        <input id="loginId" name="id" inputmode="text" autocapitalize="characters" maxlength="8" placeholder="AA000000" required>
+      </label>
+      <label>PIN
+        <input id="loginPin" name="pin" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="••••" required>
+      </label>
+      <p class="login-error" id="loginError" role="alert"></p>
+      <button class="btn-naranja" type="submit" id="loginBtn">Entrar</button>
+    </form>
+    <p class="login-help">Tu ID y tu PIN te los damos en la tienda.</p>
+    <p class="login-demo" id="loginDemo" hidden>Modo demo · prueba con <b>AA000001</b> y PIN <b>1234</b></p>
+  </section>
+
+  <!-- APP -->
+  <div class="app" id="app" hidden>
+    <header class="cab" id="cab"></header>
+    <main class="main" id="main" tabindex="-1"></main>
+    <nav class="tabbar" aria-label="Menú">
+      <a href="#inicio" data-tab="inicio" aria-label="Inicio"><span class="ico" data-ico="tienda"></span></a>
+      <a href="#sellos" data-tab="sellos" aria-label="Cupones y sellos"><span class="ico" data-ico="porcentaje"></span></a>
+      <a href="#perfil" data-tab="perfil" aria-label="Perfil"><span class="ico" data-ico="persona"></span></a>
+      <a href="#pedido" data-tab="pedido" aria-label="Pedido"><span class="ico" data-ico="cesta"></span></a>
+    </nav>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
