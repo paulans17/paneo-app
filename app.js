@@ -104,7 +104,8 @@
   }
 
   /* ---- Modo demo (sin API) ---- */
-  function demoCliente(c) {
+  function demoCliente(c0) {
+    var c = Object.assign({}, c0, LS.get('demo.tarjeta.' + c0.id, {}));
     var dias = 0, fecha = '';
     if (c.sellos >= 10 && c.dias_completado != null) {
       var f = new Date(); f.setDate(f.getDate() - c.dias_completado);
@@ -115,6 +116,8 @@
       id: c.id, nombre: c.nombre, apellidos: c.apellidos, sellos: c.sellos,
       fecha_completado: fecha, canjeado: c.canjeado,
       favoritos: LS.get('demo.fav.' + c.id, c.favoritos),
+      cupon4_canjeado: !!c.cupon4_canjeado,
+      cupon8_canjeado: !!c.cupon8_canjeado,
       dias_restantes: dias,
       encuesta: LS.get('demo.enc.' + c.id, null)
     };
@@ -134,6 +137,16 @@
         if (i === -1) favs.push(b.producto); else favs.splice(i, 1);
         LS.set('demo.fav.' + c.id, favs);
         return { ok: true, favoritos: favs };
+      }
+      if (b.action === 'canjear') {
+        var t = demoCliente(c), cambio = {}, nueva = false;
+        if (b.cupon === 'c4' && t.sellos >= 4 && !t.cupon4_canjeado) cambio.cupon4_canjeado = true;
+        else if (b.cupon === 'c8' && t.sellos >= 8 && !t.cupon8_canjeado) cambio.cupon8_canjeado = true;
+        else if ((b.cupon === 'especial' || b.cupon === 'caducado') && t.sellos >= 10) {
+          cambio = { sellos: 0, dias_completado: null, canjeado: false, cupon4_canjeado: false, cupon8_canjeado: false }; nueva = true;
+        } else return { ok: false, error: 'Este cupón no está disponible' };
+        LS.set('demo.tarjeta.' + c.id, Object.assign(LS.get('demo.tarjeta.' + c.id, {}), cambio));
+        return { ok: true, nuevaTarjeta: nueva, cliente: demoCliente(c) };
       }
       if (b.action === 'encuesta') {
         LS.set('demo.enc.' + c.id, { alergias: b.alergias, dieta: b.dieta, gustos: b.gustos });
@@ -442,13 +455,17 @@
     LS.set('sellosVistos.' + c.id, n);
 
     var cupones = '';
-    if (n >= 4) cupones += cupon('-50 %', 'Cupón de la casilla 4', 'Enséñalo en caja para tu descuento.', 0);
-    if (n >= 8) cupones += cupon('-50 %', 'Cupón de la casilla 8', 'Otro descuento del 50 % en tu próxima compra.', 1);
+    if (n >= 4 && !c.cupon4_canjeado) cupones += cupon('c4', '-50 %', 'Cupón de la casilla 4', 'Toca para usarlo en caja.', 0);
+    if (n >= 8 && !c.cupon8_canjeado) cupones += cupon('c8', '-50 %', 'Cupón de la casilla 8', 'Toca para usarlo en caja.', 1);
     var completo = '';
     if (n >= 10) {
-      if (c.canjeado) completo = '<div class="completo"><h3>¡Regalo canjeado!</h3><p>Ya disfrutaste tu artículo especial. Pide una tarjeta nueva en la tienda.</p></div>';
-      else if (c.dias_restantes > 0) completo = '<div class="completo"><h3>¡Bono completo!</h3><p>Tienes <b>' + c.dias_restantes + (c.dias_restantes === 1 ? ' día' : ' días') + '</b> para canjear tu artículo especial.</p></div>';
-      else completo = '<div class="completo"><h3>Bono completo</h3><p>El plazo de 30 días para canjear el artículo especial ha terminado.</p></div>';
+      if (c.dias_restantes > 0) {
+        completo = '<div class="completo"><h3>¡Bono completo!</h3><p>Tienes <b>' + c.dias_restantes + (c.dias_restantes === 1 ? ' día' : ' días') + '</b> para canjear tu artículo especial.</p></div>';
+        cupones = cupon('especial', '★', 'Artículo especial', 'Toca para canjearlo. Después empiezas una tarjeta nueva.', 0, true) + cupones;
+      } else {
+        completo = '<div class="completo"><h3>Bono completo</h3><p>El plazo de 30 días para canjear el artículo especial ha terminado.</p>' +
+          '<button type="button" class="btn-tarjeta" data-cupon="caducado">Empezar tarjeta nueva</button></div>';
+      }
     }
     var faltan = n < 4 ? 4 - n : n < 8 ? 8 - n : 10 - n;
     var siguiente = n < 10 ? '<p class="letra-pequena" style="font-size:15px;color:#F7F0E3;margin-top:16px">' +
@@ -462,9 +479,81 @@
       (cupones ? '<div class="cupones">' + cupones + '</div>' : '') +
       '<p class="letra-pequena">El sello se pone por cada visita en la que compras, no por producto. Los sellos los pone el personal de paNeo en la tienda.</p>';
   };
-  function cupon(big, titulo, txt, i) {
-    return '<div class="cupon" style="animation-delay:' + (0.2 + i * 0.1) + 's"><span class="big">' + big + '</span><p><b>' + titulo + '</b>' + txt + '</p></div>';
+  function cupon(id, big, titulo, txt, i, especial) {
+    return '<button type="button" class="cupon' + (especial ? ' cupon-especial' : '') + '" data-cupon="' + id + '" style="animation-delay:' + (0.2 + i * 0.1) + 's">' +
+      '<span class="big">' + big + '</span><p><b>' + titulo + '</b>' + txt + '</p><span class="usar" aria-hidden="true">›</span></button>';
   }
+
+  /* ================================================================ */
+  /* Ventana flotante del cupón (QR aleatorio + Atrás / Canjear)       */
+  /* ================================================================ */
+  var CUPONES = {
+    c4: { big: '-50 %', titulo: 'Cupón de la casilla 4', txt: 'Enseña este código en caja y te descontamos el 50 %.' },
+    c8: { big: '-50 %', titulo: 'Cupón de la casilla 8', txt: 'Enseña este código en caja y te descontamos el 50 %.' },
+    especial: { big: '★', titulo: 'Artículo especial', txt: 'Enseña este código en caja para recoger tu regalo. Al canjearlo empiezas una tarjeta nueva.' },
+    caducado: { big: '↺', titulo: 'Tarjeta nueva', txt: 'Tu tarjeta caducó sin canjear el regalo. Empieza una nueva con 0 sellos.' }
+  };
+  function codigoAleatorio() {
+    var abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', out = '', n = new Uint8Array(8);
+    (window.crypto || window.msCrypto).getRandomValues(n);
+    for (var i = 0; i < 8; i++) { out += abc[n[i] % abc.length]; if (i === 3) out += '-'; }
+    return out;
+  }
+  function qrSvg(texto) {
+    if (typeof qrcode !== 'function') return '';
+    var qr = qrcode(0, 'M');
+    qr.addData(texto);
+    qr.make();
+    return qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
+  }
+  var focoPrevio = null;
+  function abrirCupon(id) {
+    var info = CUPONES[id];
+    if (!info) return;
+    var c = E.cliente, codigo = codigoAleatorio();
+    var aviso = '';
+    if (id === 'especial' && ((c.sellos >= 4 && !c.cupon4_canjeado) || (c.sellos >= 8 && !c.cupon8_canjeado))) {
+      aviso = '<p class="modal-aviso">Ojo: aún tienes cupones de -50 % sin usar. Al empezar la tarjeta nueva se perderán.</p>';
+    }
+    var qr = id === 'caducado' ? '' : qrSvg('PANEO|' + c.id + '|' + id + '|' + codigo);
+    var m = $('#modal');
+    m.innerHTML = '<div class="modal-fondo" data-cerrar></div>' +
+      '<div class="modal-caja" role="dialog" aria-modal="true" aria-labelledby="modalTitulo">' +
+      '<p class="modal-big">' + info.big + '</p>' +
+      '<h2 id="modalTitulo">' + info.titulo + '</h2>' +
+      (id === 'caducado' ? '' : '<div class="qr">' + (qr || '<span class="qr-alt">' + codigo + '</span>') + '</div><p class="codigo">' + codigo + '</p>') +
+      '<p class="modal-txt">' + info.txt + '</p>' + aviso +
+      '<div class="modal-btns"><button type="button" class="btn-atras" data-cerrar>Atrás</button>' +
+      '<button type="button" class="btn-naranja" id="btnCanjear">' + (id === 'caducado' ? 'Empezar' : 'Canjear') + '</button></div>' +
+      '</div>';
+    m.hidden = false;
+    focoPrevio = document.activeElement;
+    requestAnimationFrame(function () { m.classList.add('on'); $('.btn-atras', m).focus(); });
+    $$('[data-cerrar]', m).forEach(function (b) { b.addEventListener('click', cerrarCupon); });
+    $('#btnCanjear').addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Canjeando…';
+      post(conSesion({ action: 'canjear', cupon: id, codigo: codigo })).then(function (r) {
+        if (!r || !r.ok) throw new Error((r && r.error) || 'No se ha podido canjear');
+        guardarCliente(r.cliente);
+        if (r.nuevaTarjeta) LS.set('sellosVistos.' + r.cliente.id, 0);
+        cerrarCupon();
+        render();
+        toast(r.nuevaTarjeta ? '¡Tarjeta nueva! A por los 10 sellos' : 'Cupón canjeado ✔');
+      }).catch(function (x) {
+        btn.disabled = false; btn.textContent = 'Canjear';
+        toast(/fetch|network|timeout/i.test(x.message) ? 'Sin conexión. Inténtalo de nuevo.' : x.message);
+      });
+    });
+  }
+  function cerrarCupon() {
+    var m = $('#modal');
+    if (m.hidden) return;
+    m.classList.remove('on');
+    setTimeout(function () { m.hidden = true; m.innerHTML = ''; }, 220);
+    if (focoPrevio && focoPrevio.focus) focoPrevio.focus();
+  }
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') cerrarCupon(); });
 
   /* ================================================================ */
   /* Router                                                            */
@@ -570,6 +659,10 @@
         .then(function (r) { if (r && r.ok && r.cliente) guardarCliente(r.cliente); toast('¡Guardado! Mira tus recomendaciones'); })
         .catch(function () { toast('Guardado en este móvil (sin conexión)'); })
         .then(function () { location.hash = '#inicio'; setTimeout(function () { var m = $('#main'); m.scrollTo({ top: m.scrollHeight, behavior: 'smooth' }); }, 120); });
+    });
+
+    $$('[data-cupon]').forEach(function (b) {
+      b.addEventListener('click', function () { abrirCupon(b.getAttribute('data-cupon')); });
     });
 
     $$('[data-pedido]').forEach(function (b) {

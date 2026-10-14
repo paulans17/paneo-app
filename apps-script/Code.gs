@@ -7,18 +7,25 @@
  * 4. Implementar → Nueva implementación → Aplicación web
  *    · Ejecutar como: yo   · Acceso: cualquier usuario
  * 5. Copia la URL que acaba en /exec y pégala en app/config.js
+ *
+ * ¿Hoja creada con una versión anterior? Ejecuta actualizar() (no borra datos) y luego
+ * Implementar → Gestionar implementaciones → lápiz → Versión: Nueva versión.
  */
 
 var DIAS_CANJE = 30;
 var MAX_SELLOS = 10;
 
 var CABECERAS = {
-  Clientes: ['id', 'pin', 'nombre', 'apellidos', 'sellos', 'fecha_completado', 'canjeado', 'favoritos'],
+  Clientes: ['id', 'pin', 'nombre', 'apellidos', 'sellos', 'fecha_completado', 'canjeado', 'favoritos',
+             'cupon4_canjeado', 'cupon8_canjeado'],
   Productos: ['id', 'nombre', 'categoria', 'precio', 'sin_gluten', 'vegano', 'cero_azucar', 'sin_lactosa',
               'imagen', 'especial_hoy', 'oferta', 'novedad', 'descripcion'],
   Pedidos: ['numero', 'id_cliente', 'estado', 'dias_envio', 'fecha'],
-  Encuesta: ['fecha', 'id_cliente', 'alergias', 'dieta', 'gustos']
+  Encuesta: ['fecha', 'id_cliente', 'alergias', 'dieta', 'gustos'],
+  Canjes: ['fecha', 'id_cliente', 'cupon', 'codigo']
 };
+
+var NOMBRE_CUPON = { c4: '-50 % (casilla 4)', c8: '-50 % (casilla 8)', especial: 'Artículo especial', caducado: 'Tarjeta caducada (nueva tarjeta)', tienda: 'Artículo especial (marcado en la hoja)' };
 
 /* ------------------------------------------------------------------ */
 /* API                                                                 */
@@ -75,13 +82,19 @@ function doPost(e) {
       return json({ ok: true, cliente: clientePublico(autenticar(body.id, body.pin)) });
     }
 
+    if (body.action === 'canjear') {
+      var r = canjear(c, String(body.cupon || ''), String(body.codigo || ''));
+      if (!r.ok) return json(r);
+      return json({ ok: true, nuevaTarjeta: r.nuevaTarjeta, cliente: clientePublico(autenticar(body.id, body.pin)) });
+    }
+
     if (body.action === 'favorito') {
       var prod = String(body.producto || '').trim();
       if (!prod) return json({ ok: false, error: 'Falta el producto' });
       var favs = lista(c.datos.favoritos);
       var i = favs.indexOf(prod);
       if (i === -1) favs.push(prod); else favs.splice(i, 1);
-      var col = CABECERAS.Clientes.indexOf('favoritos') + 1;
+      var col = colDe('Clientes', 'favoritos');
       hoja('Clientes').getRange(c.fila, col).setValue(favs.join(','));
       return json({ ok: true, favoritos: favs });
     }
@@ -95,23 +108,76 @@ function doPost(e) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Trigger: pone la fecha cuando la tarjeta llega a 10 sellos          */
+/* Trigger: fecha al llegar a 10 sellos y tarjeta nueva al marcar      */
+/* «canjeado» desde la hoja                                            */
 /* ------------------------------------------------------------------ */
 
 function onEdit(e) {
   if (!e || !e.range) return;
   var sh = e.range.getSheet();
   if (sh.getName() !== 'Clientes') return;
-  var colSellos = CABECERAS.Clientes.indexOf('sellos') + 1;
-  var colFecha = CABECERAS.Clientes.indexOf('fecha_completado') + 1;
-  var r0 = e.range.getRow(), r1 = e.range.getLastRow();
+  var colSellos = colDe('Clientes', 'sellos');
+  var colFecha = colDe('Clientes', 'fecha_completado');
+  var colCanjeado = colDe('Clientes', 'canjeado');
+  var r0 = Math.max(2, e.range.getRow()), r1 = e.range.getLastRow();
   var c0 = e.range.getColumn(), c1 = e.range.getLastColumn();
-  if (colSellos < c0 || colSellos > c1) return;
-  for (var r = Math.max(2, r0); r <= r1; r++) {
-    var sellos = Number(sh.getRange(r, colSellos).getValue());
-    var fecha = sh.getRange(r, colFecha);
-    if (sellos >= MAX_SELLOS && !fecha.getValue()) fecha.setValue(hoyFecha());
+  for (var r = r0; r <= r1; r++) {
+    if (colSellos >= c0 && colSellos <= c1) {
+      var sellos = Number(sh.getRange(r, colSellos).getValue());
+      var fecha = sh.getRange(r, colFecha);
+      if (sellos >= MAX_SELLOS && !fecha.getValue()) fecha.setValue(hoyFecha());
+    }
+    // El personal marca «canjeado» al entregar el regalo → tarjeta nueva y queda apuntado en Canjes
+    if (colCanjeado >= c0 && colCanjeado <= c1 && bool(sh.getRange(r, colCanjeado).getValue())) {
+      var id = String(sh.getRange(r, colDe('Clientes', 'id')).getValue()).trim();
+      if (id) reiniciarTarjeta(r, id, 'tienda', '');
+    }
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Cupones                                                             */
+/* ------------------------------------------------------------------ */
+
+// c4 y c8: -50 % de las casillas 4 y 8. especial: artículo de la casilla 10 (reinicia la tarjeta).
+// caducado: pasaron los 30 días sin canjear → el cliente empieza una tarjeta nueva.
+function canjear(c, cupon, codigo) {
+  var d = c.datos, sh = hoja('Clientes');
+  var info = clientePublico(c);
+  var n = info.sellos;
+  if (cupon === 'c4' || cupon === 'c8') {
+    var minimo = cupon === 'c4' ? 4 : 8;
+    var campo = cupon === 'c4' ? 'cupon4_canjeado' : 'cupon8_canjeado';
+    if (n < minimo) return { ok: false, error: 'Aún no tienes este cupón' };
+    if (bool(d[campo])) return { ok: false, error: 'Este cupón ya está canjeado' };
+    sh.getRange(c.fila, colDe('Clientes', campo)).setValue(true);
+    apuntarCanje(d.id, cupon, codigo);
+    return { ok: true, nuevaTarjeta: false };
+  }
+  if (cupon === 'especial' || cupon === 'caducado') {
+    if (n < MAX_SELLOS) return { ok: false, error: 'La tarjeta aún no está completa' };
+    if (cupon === 'especial' && info.dias_restantes <= 0) return { ok: false, error: 'El plazo de 30 días ha terminado' };
+    if (cupon === 'caducado' && info.dias_restantes > 0) return { ok: false, error: 'Aún puedes canjear tu artículo especial' };
+    reiniciarTarjeta(c.fila, d.id, cupon, codigo);
+    return { ok: true, nuevaTarjeta: true };
+  }
+  return { ok: false, error: 'Cupón desconocido' };
+}
+
+function reiniciarTarjeta(fila, id, motivo, codigo) {
+  var sh = hoja('Clientes');
+  sh.getRange(fila, colDe('Clientes', 'sellos')).setValue(0);
+  sh.getRange(fila, colDe('Clientes', 'fecha_completado')).clearContent();
+  sh.getRange(fila, colDe('Clientes', 'canjeado')).setValue(false);
+  sh.getRange(fila, colDe('Clientes', 'cupon4_canjeado')).setValue(false);
+  sh.getRange(fila, colDe('Clientes', 'cupon8_canjeado')).setValue(false);
+  apuntarCanje(id, motivo, codigo);
+}
+
+function apuntarCanje(id, cupon, codigo) {
+  var sh = SpreadsheetApp.getActive().getSheetByName('Canjes');
+  if (!sh) return;
+  sh.appendRow([new Date(), id, NOMBRE_CUPON[cupon] || cupon, codigo || '']);
 }
 
 /* ------------------------------------------------------------------ */
@@ -198,7 +264,7 @@ function clientePublico(c) {
   var fecha = d.fecha_completado;
   if (sellos >= MAX_SELLOS && !fecha) {
     fecha = hoyFecha();
-    hoja('Clientes').getRange(c.fila, CABECERAS.Clientes.indexOf('fecha_completado') + 1).setValue(fecha);
+    hoja('Clientes').getRange(c.fila, colDe('Clientes', 'fecha_completado')).setValue(fecha);
   }
   var canjeado = bool(d.canjeado);
   var dias = 0;
@@ -217,6 +283,8 @@ function clientePublico(c) {
     fecha_completado: fecha ? fechaTexto(fecha) : '',
     canjeado: canjeado,
     favoritos: lista(d.favoritos),
+    cupon4_canjeado: bool(d.cupon4_canjeado),
+    cupon8_canjeado: bool(d.cupon8_canjeado),
     dias_restantes: dias,
     encuesta: ultimaEncuesta(d.id)
   };
@@ -228,6 +296,16 @@ function clientePublico(c) {
 
 function json(o) {
   return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// Columna (1, 2, 3…) de una cabecera, leyendo la fila 1 real de la hoja (por si alguien mueve columnas)
+function colDe(nombre, cabecera) {
+  var sh = hoja(nombre);
+  var cab = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0]
+    .map(function (h) { return String(h).trim(); });
+  var i = cab.indexOf(cabecera);
+  if (i === -1) throw new Error('Falta la columna "' + cabecera + '" en ' + nombre + '. Ejecuta actualizar().');
+  return i + 1;
 }
 
 function hoja(nombre) {
@@ -293,9 +371,9 @@ function setup() {
 
   var hace5 = new Date(); hace5.setDate(hace5.getDate() - 5);
   rellenar('Clientes', [
-    ['LuciaBaro', '2504', 'Lucía', 'Baró', 3, '', false, 'P01,P05'],
-    ['HernanDeLorenzo', '2504', 'Hernán', 'de Lorenzo', 8, '', false, 'P06,P07'],
-    ['AlbaNavarro', '2504', 'Alba', 'Navarro', 10, soloDia(hace5), false, 'P05,P06,P07']
+    ['LuciaBaro', '2504', 'Lucía', 'Baró', 3, '', false, 'P01,P05', false, false],
+    ['HernanDeLorenzo', '2504', 'Hernán', 'de Lorenzo', 8, '', false, 'P06,P07', false, false],
+    ['AlbaNavarro', '2504', 'Alba', 'Navarro', 10, soloDia(hace5), false, 'P05,P06,P07', false, false]
   ]);
 
   var img = 'assets/productos/';
@@ -327,6 +405,26 @@ function setup() {
   SpreadsheetApp.getActive().toast('paNeo BD lista ✔', 'setup()');
 }
 
+// Para una hoja ya creada: añade las columnas y pestañas nuevas sin tocar los datos, y rehace el formato.
+function actualizar() {
+  var ss = SpreadsheetApp.getActive();
+  Object.keys(CABECERAS).forEach(function (nombre) {
+    var sh = ss.getSheetByName(nombre) || ss.insertSheet(nombre);
+    var cab = CABECERAS[nombre];
+    var ancho = Math.max(1, sh.getLastColumn());
+    var actuales = sh.getRange(1, 1, 1, ancho).getValues()[0].map(function (h) { return String(h).trim(); });
+    cab.forEach(function (h) {
+      if (actuales.indexOf(h) === -1) {
+        var col = actuales.filter(String).length + 1;
+        sh.getRange(1, col).setValue(h);
+        actuales[col - 1] = h;
+      }
+    });
+  });
+  formato();
+  ss.toast('paNeo BD actualizada ✔', 'actualizar()');
+}
+
 // Formato pensado para el equipo de la tienda. Se puede volver a ejecutar sin perder datos.
 function formato() {
   var ss = SpreadsheetApp.getActive();
@@ -337,7 +435,9 @@ function formato() {
       pin: '4 cifras. Se lo dais en la tienda.',
       sellos: 'De 0 a 10. Suma 1 por cada visita con compra (no por producto). En 4 y 8 hay -50 %; en 10, artículo especial.',
       fecha_completado: 'Se rellena sola al llegar a 10 sellos. Desde ese día hay 30 días para canjear.',
-      canjeado: 'Márcalo al entregar el artículo especial. Tarjeta nueva: sellos = 0, borra la fecha y desmarca esto.',
+      canjeado: 'Márcalo al entregar el artículo especial: la tarjeta se reinicia sola (sellos a 0) y queda apuntado en Canjes.',
+      cupon4_canjeado: 'Se marca solo cuando el cliente canjea en la app el -50 % de la casilla 4.',
+      cupon8_canjeado: 'Se marca solo cuando el cliente canjea en la app el -50 % de la casilla 8.',
       favoritos: 'Lo rellena la app (ids de producto separados por comas).'
     },
     Productos: {
@@ -351,7 +451,8 @@ function formato() {
       estado: 'cocina → horno → listo para recoger → entregado',
       dias_envio: 'Días que faltan para que esté listo.'
     },
-    Encuesta: { fecha: 'La rellena la app cuando el cliente guarda su encuesta de preferencias.' }
+    Encuesta: { fecha: 'La rellena la app cuando el cliente guarda su encuesta de preferencias.' },
+    Canjes: { fecha: 'Historial: se apunta solo cada vez que se canjea un cupón o se reinicia una tarjeta.', codigo: 'Código del QR que enseñó el cliente.' }
   };
 
   Object.keys(CABECERAS).forEach(function (nombre) {
@@ -369,17 +470,17 @@ function formato() {
     });
     sh.autoResizeColumns(1, cab.length);
     for (var j = 1; j <= cab.length; j++) sh.setColumnWidth(j, Math.max(sh.getColumnWidth(j) + 16, 90));
-    sh.setTabColor({ Clientes: '#E8761E', Productos: '#F2B33D', Pedidos: '#8A4420', Encuesta: '#E6B37C' }[nombre]);
-    if (!sh.getBandings().length) {
-      sh.getRange(1, 1, FILAS, cab.length).applyRowBanding(SpreadsheetApp.BandingTheme.BROWN, true, false);
-    }
+    sh.setTabColor({ Clientes: '#E8761E', Productos: '#F2B33D', Pedidos: '#8A4420', Encuesta: '#E6B37C', Canjes: '#3E1A0E' }[nombre]);
+    sh.getBandings().forEach(function (b) { b.remove(); });
+    sh.getRange(1, 1, FILAS, cab.length).applyRowBanding(SpreadsheetApp.BandingTheme.BROWN, true, false);
+    sh.getRange(1, 1, 1, cab.length).setBackground('#3E1A0E').setFontColor('#F7F0E3');
   });
 
-  function col(nombre, h) { return CABECERAS[nombre].indexOf(h) + 1; }
+  function col(nombre, h) { return colDe(nombre, h); }
   function columna(nombre, h) { return ss.getSheetByName(nombre).getRange(2, col(nombre, h), FILAS - 1, 1); }
 
   // Casillas de verificación en los campos sí/no
-  ['canjeado'].forEach(function (h) { columna('Clientes', h).insertCheckboxes(); });
+  ['canjeado', 'cupon4_canjeado', 'cupon8_canjeado'].forEach(function (h) { columna('Clientes', h).insertCheckboxes(); });
   ['sin_gluten', 'vegano', 'cero_azucar', 'sin_lactosa', 'especial_hoy', 'oferta', 'novedad'].forEach(function (h) {
     columna('Productos', h).insertCheckboxes();
   });
@@ -400,6 +501,7 @@ function formato() {
   columna('Clientes', 'fecha_completado').setNumberFormat('dd/mm/yyyy');
   columna('Productos', 'precio').setNumberFormat('#,##0.00 "€"');
   columna('Encuesta', 'fecha').setNumberFormat('dd/mm/yyyy hh:mm');
+  columna('Canjes', 'fecha').setNumberFormat('dd/mm/yyyy hh:mm');
   columna('Pedidos', 'estado').setDataValidation(SpreadsheetApp.newDataValidation()
     .requireValueInList(['cocina', 'horno', 'listo para recoger', 'entregado'], true).build());
 }
