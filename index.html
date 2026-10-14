@@ -26,8 +26,8 @@
     <div class="login-logo"><img src="assets/logo-paneo.jpg" alt="paNeo"></div>
     <p class="login-sub">Pan para todos</p>
     <form class="login-form" id="loginForm" autocomplete="off" novalidate>
-      <label>ID de cliente
-        <input id="loginId" name="id" inputmode="text" autocapitalize="characters" maxlength="8" placeholder="AA000000" required>
+      <label>Nombre de Usuario
+        <input id="loginId" name="id" inputmode="text" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="username" maxlength="40" placeholder="paNeo" required>
       </label>
       <label>PIN
         <input id="loginPin" name="pin" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="••••" required>
@@ -36,7 +36,6 @@
       <button class="btn-naranja" type="submit" id="loginBtn">Entrar</button>
     </form>
     <p class="login-help">Tu ID y tu PIN te los damos en la tienda.</p>
-    <p class="login-demo" id="loginDemo" hidden>Modo demo · prueba con <b>AA000001</b> y PIN <b>1234</b></p>
   </section>
 
   <!-- APP -->

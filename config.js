@@ -18,11 +18,11 @@ const PANEO_RESPALDO = {
   ],
   // Solo para el modo demo: en cuanto hay API_URL, estos clientes se ignoran.
   clientes: [
-    { id: "AA000001", pin: "1234", nombre: "Lucía", apellidos: "Baró", sellos: 3, dias_completado: null, canjeado: false, favoritos: ["P01", "P05"] },
-    { id: "AA000002", pin: "2345", nombre: "Hernán", apellidos: "de Lorenzo", sellos: 8, dias_completado: null, canjeado: false, favoritos: ["P06", "P07"] },
-    { id: "AA000003", pin: "3456", nombre: "Alba", apellidos: "Navarro", sellos: 10, dias_completado: 5, canjeado: false, favoritos: ["P05", "P06", "P07"] }
+    { id: "LuciaBaro", pin: "2504", nombre: "Lucía", apellidos: "Baró", sellos: 3, dias_completado: null, canjeado: false, favoritos: ["P01", "P05"] },
+    { id: "HernanDeLorenzo", pin: "2504", nombre: "Hernán", apellidos: "de Lorenzo", sellos: 8, dias_completado: null, canjeado: false, favoritos: ["P06", "P07"] },
+    { id: "AlbaNavarro", pin: "2504", nombre: "Alba", apellidos: "Navarro", sellos: 10, dias_completado: 5, canjeado: false, favoritos: ["P05", "P06", "P07"] }
   ],
   pedidos: [
-    { numero: "CD00001", id_cliente: "AA000001", estado: "cocina", dias_envio: 2, fecha: "14/10/2026" }
+    { numero: "CD00001", id_cliente: "LuciaBaro", estado: "cocina", dias_envio: 2, fecha: "14/10/2026" }
   ]
 };

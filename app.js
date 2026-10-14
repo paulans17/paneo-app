@@ -19,6 +19,8 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  // Nombre de usuario: sin distinguir mayúsculas, tildes ni espacios ("Lucía Baró" = "luciabaro")
+  function normUsuario(s) { return norm(s).replace(/\s+/g, ''); }
   function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
   function precio(p) { return p > 0 ? p.toFixed(2).replace('.', ',') + '€' : 'Consultar precio'; }
   function img(src) {
@@ -119,13 +121,13 @@
   }
   var demo = {
     auth: function (id, pin) {
-      return R.clientes.filter(function (c) { return c.id === id && String(c.pin) === String(pin); })[0];
+      return R.clientes.filter(function (c) { return normUsuario(c.id) === normUsuario(id) && String(c.pin) === String(pin); })[0];
     },
     post: function (b) {
       var c = demo.auth(b.id, b.pin);
-      if (!c) return { ok: false, error: 'ID o PIN incorrectos' };
+      if (!c) return { ok: false, error: 'Usuario o PIN incorrectos' };
       if (b.action === 'login' || b.action === 'cliente') return { ok: true, cliente: demoCliente(c) };
-      if (b.action === 'pedidos') return { ok: true, pedidos: R.pedidos.filter(function (p) { return p.id_cliente === c.id; }) };
+      if (b.action === 'pedidos') return { ok: true, pedidos: R.pedidos.filter(function (p) { return normUsuario(p.id_cliente) === normUsuario(c.id); }) };
       if (b.action === 'favorito') {
         var favs = LS.get('demo.fav.' + c.id, c.favoritos).slice();
         var i = favs.indexOf(b.producto);
@@ -379,7 +381,7 @@
       '<div class="contador" aria-label="' + c.dias_restantes + ' días"><b>' + c.dias_restantes + '</b><small>DÍAS</small></div></div>' +
       '<a class="mini-sellos" href="#sellos"><span>Tarjeta de sellos</span><b>' + c.sellos + ' / 10</b></a>' +
       '<dl class="datos"><dt>Nombre</dt><dd>' + esc((c.nombre + ' ' + c.apellidos).trim() || '—') + '</dd>' +
-      '<dt>ID de cliente</dt><dd>' + esc(c.id) + '</dd>' +
+      '<dt>Usuario</dt><dd>' + esc(c.id) + '</dd>' +
       (c.encuesta ? '<dt>Tus preferencias</dt><dd>' + esc(resumenEncuesta(c.encuesta)) + '</dd>' : '') +
       '</dl></section>';
   };
@@ -454,7 +456,7 @@
 
     return '<section class="bono">' +
       '<div class="lineap"></div><h2>Bono canjeable</h2><div class="lineap"></div>' +
-      '<div class="quien"><span>Cliente: <b>' + esc((c.nombre + ' ' + c.apellidos).trim()) + '</b></span><span>ID: <b>' + esc(c.id) + '</b></span></div>' +
+      '<div class="quien"><span>Cliente: <b>' + esc((c.nombre + ' ' + c.apellidos).trim()) + '</b></span><span>Usuario: <b>' + esc(c.id) + '</b></span></div>' +
       '<div class="casillas">' + casillas + '</div>' +
       '</section>' + siguiente + completo +
       (cupones ? '<div class="cupones">' + cupones + '</div>' : '') +
@@ -619,7 +621,8 @@
   function mostrarLogin() {
     $('#app').hidden = true;
     $('#login').hidden = false;
-    $('#loginDemo').hidden = HAY_API;
+    var demoTxt = $('#loginDemo');
+    if (demoTxt) demoTxt.hidden = HAY_API;
   }
   function cerrarSesion() {
     E.sesion = null; E.cliente = null; E.pedidos = null;
@@ -628,19 +631,18 @@
     mostrarLogin();
   }
 
-  $('#loginId').addEventListener('input', function (e) { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
   $('#loginPin').addEventListener('input', function (e) { e.target.value = e.target.value.replace(/\D/g, ''); });
   $('#loginForm').addEventListener('submit', function (e) {
     e.preventDefault();
-    var id = $('#loginId').value.trim().toUpperCase(), pin = $('#loginPin').value.trim();
+    var id = $('#loginId').value.trim(), pin = $('#loginPin').value.trim();
     var err = $('#loginError'), btn = $('#loginBtn'), form = $('#loginForm');
     err.textContent = '';
     form.classList.remove('error');
-    if (!/^[A-Z]{2}\d{6}$/.test(id)) { err.textContent = 'El ID tiene 2 letras y 6 números (AA000000).'; void form.offsetWidth; form.classList.add('error'); return; }
+    if (id.length < 3) { err.textContent = 'Escribe tu nombre de usuario.'; void form.offsetWidth; form.classList.add('error'); return; }
     if (!/^\d{4}$/.test(pin)) { err.textContent = 'El PIN tiene 4 cifras.'; void form.offsetWidth; form.classList.add('error'); return; }
     btn.disabled = true; btn.textContent = 'Entrando…';
     post({ action: 'login', id: id, pin: pin }).then(function (r) {
-      if (!r || !r.ok) throw new Error((r && r.error) || 'ID o PIN incorrectos');
+      if (!r || !r.ok) throw new Error((r && r.error) || 'Usuario o PIN incorrectos');
       E.sesion = { id: id, pin: pin };
       LS.set('sesion', E.sesion);
       guardarCliente(r.cliente);

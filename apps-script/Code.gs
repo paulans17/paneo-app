@@ -33,11 +33,11 @@ function doGet(e) {
       case 'login':
       case 'cliente':
         var c = autenticar(p.id, p.pin);
-        if (!c) return json({ ok: false, error: 'ID o PIN incorrectos' });
+        if (!c) return json({ ok: false, error: 'Usuario o PIN incorrectos' });
         return json({ ok: true, cliente: clientePublico(c) });
       case 'pedidos':
         var cli = autenticar(p.id, p.pin);
-        if (!cli) return json({ ok: false, error: 'ID o PIN incorrectos' });
+        if (!cli) return json({ ok: false, error: 'Usuario o PIN incorrectos' });
         return json({ ok: true, pedidos: leerPedidos(cli.datos.id) });
       default:
         return json({ ok: true, app: 'paNeo', acciones: ['productos', 'login', 'cliente', 'pedidos'] });
@@ -54,7 +54,7 @@ function doPost(e) {
     lock.waitLock(10000);
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     var c = autenticar(body.id, body.pin);
-    if (!c) return json({ ok: false, error: 'ID o PIN incorrectos' });
+    if (!c) return json({ ok: false, error: 'Usuario o PIN incorrectos' });
 
     // Igual que en doGet, pero así el PIN no viaja en la URL (la app usa esta vía).
     if (body.action === 'login' || body.action === 'cliente') {
@@ -153,7 +153,7 @@ function leerProductos() {
 function leerPedidos(idCliente) {
   return leerTabla('Pedidos')
     .map(function (r) { return r.datos; })
-    .filter(function (p) { return normId(p.id_cliente) === idCliente; })
+    .filter(function (p) { return normId(p.id_cliente) === normId(idCliente); })
     .map(function (p) {
       return {
         numero: String(p.numero),
@@ -166,7 +166,7 @@ function leerPedidos(idCliente) {
 
 function ultimaEncuesta(idCliente) {
   var filas = leerTabla('Encuesta').map(function (r) { return r.datos; })
-    .filter(function (r) { return normId(r.id_cliente) === idCliente; });
+    .filter(function (r) { return normId(r.id_cliente) === normId(idCliente); });
   if (!filas.length) return null;
   var u = filas[filas.length - 1];
   return { alergias: lista(u.alergias), dieta: lista(u.dieta), gustos: lista(u.gustos) };
@@ -179,12 +179,12 @@ function ultimaEncuesta(idCliente) {
 function autenticar(id, pin) {
   id = normId(id);
   pin = normPin(pin);
-  if (!/^[A-Z]{2}\d{6}$/.test(id) || !/^\d{4}$/.test(pin)) return null;
+  if (id.length < 3 || !/^\d{4}$/.test(pin)) return null;
   var filas = leerTabla('Clientes');
   for (var i = 0; i < filas.length; i++) {
     var d = filas[i].datos;
     if (normId(d.id) === id && normPin(d.pin) === pin) {
-      d.id = id;
+      d.id = String(d.id).trim(); // se devuelve tal y como está escrito en la Sheet
       return filas[i];
     }
   }
@@ -236,7 +236,10 @@ function hoja(nombre) {
   return sh;
 }
 
-function normId(v) { return String(v || '').trim().toUpperCase(); }
+// Nombre de usuario sin distinguir mayúsculas, tildes ni espacios ("Lucía Baró" = "luciabaro")
+function normId(v) {
+  return String(v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '');
+}
 function normPin(v) {
   var s = String(v == null ? '' : v).trim();
   return /^\d{1,4}$/.test(s) ? ('0000' + s).slice(-4) : s;
@@ -290,9 +293,9 @@ function setup() {
 
   var hace5 = new Date(); hace5.setDate(hace5.getDate() - 5);
   rellenar('Clientes', [
-    ['AA000001', '1234', 'Lucía', 'Baró', 3, '', false, 'P01,P05'],
-    ['AA000002', '2345', 'Hernán', 'de Lorenzo', 8, '', false, 'P06,P07'],
-    ['AA000003', '3456', 'Alba', 'Navarro', 10, soloDia(hace5), false, 'P05,P06,P07']
+    ['LuciaBaro', '2504', 'Lucía', 'Baró', 3, '', false, 'P01,P05'],
+    ['HernanDeLorenzo', '2504', 'Hernán', 'de Lorenzo', 8, '', false, 'P06,P07'],
+    ['AlbaNavarro', '2504', 'Alba', 'Navarro', 10, soloDia(hace5), false, 'P05,P06,P07']
   ]);
 
   var img = 'assets/productos/';
@@ -307,7 +310,7 @@ function setup() {
   ]);
 
   rellenar('Pedidos', [
-    ['CD00001', 'AA000001', 'cocina', 2, Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy')]
+    ['CD00001', 'LuciaBaro', 'cocina', 2, Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy')]
   ]);
   ss.getSheetByName('Pedidos').getRange('E:E').setNumberFormat('@');
 
@@ -320,7 +323,85 @@ function setup() {
   var h1 = ss.getSheetByName('Hoja 1') || ss.getSheetByName('Sheet1');
   if (h1 && h1.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(h1);
 
+  formato();
   SpreadsheetApp.getActive().toast('paNeo BD lista ✔', 'setup()');
+}
+
+// Formato pensado para el equipo de la tienda. Se puede volver a ejecutar sin perder datos.
+function formato() {
+  var ss = SpreadsheetApp.getActive();
+  var FILAS = 300;
+  var NOTAS = {
+    Clientes: {
+      id: 'Nombre de usuario con el que entra en la app (p. ej. LuciaBaro). No distingue mayúsculas ni tildes.',
+      pin: '4 cifras. Se lo dais en la tienda.',
+      sellos: 'De 0 a 10. Suma 1 por cada visita con compra (no por producto). En 4 y 8 hay -50 %; en 10, artículo especial.',
+      fecha_completado: 'Se rellena sola al llegar a 10 sellos. Desde ese día hay 30 días para canjear.',
+      canjeado: 'Márcalo al entregar el artículo especial. Tarjeta nueva: sellos = 0, borra la fecha y desmarca esto.',
+      favoritos: 'Lo rellena la app (ids de producto separados por comas).'
+    },
+    Productos: {
+      id: 'P01, P02… No lo cambies si ya hay clientes con ese favorito.',
+      precio: 'En euros. 0 = la app muestra «Consultar precio».',
+      imagen: 'assets/productos/archivo.jpg o una URL de imagen.',
+      especial_hoy: 'Solo uno marcado: sale grande en el inicio de la app.'
+    },
+    Pedidos: {
+      id_cliente: 'El nombre de usuario del cliente (columna id de Clientes).',
+      estado: 'cocina → horno → listo para recoger → entregado',
+      dias_envio: 'Días que faltan para que esté listo.'
+    },
+    Encuesta: { fecha: 'La rellena la app cuando el cliente guarda su encuesta de preferencias.' }
+  };
+
+  Object.keys(CABECERAS).forEach(function (nombre) {
+    var sh = ss.getSheetByName(nombre);
+    if (!sh) return;
+    var cab = CABECERAS[nombre];
+    sh.getRange(1, 1, 1, cab.length)
+      .setFontWeight('bold').setBackground('#3E1A0E').setFontColor('#F7F0E3')
+      .setVerticalAlignment('middle');
+    sh.setRowHeight(1, 32);
+    sh.setFrozenRows(1);
+    cab.forEach(function (h, j) {
+      var nota = (NOTAS[nombre] || {})[h];
+      if (nota) sh.getRange(1, j + 1).setNote(nota);
+    });
+    sh.autoResizeColumns(1, cab.length);
+    for (var j = 1; j <= cab.length; j++) sh.setColumnWidth(j, Math.max(sh.getColumnWidth(j) + 16, 90));
+    sh.setTabColor({ Clientes: '#E8761E', Productos: '#F2B33D', Pedidos: '#8A4420', Encuesta: '#E6B37C' }[nombre]);
+    if (!sh.getBandings().length) {
+      sh.getRange(1, 1, FILAS, cab.length).applyRowBanding(SpreadsheetApp.BandingTheme.BROWN, true, false);
+    }
+  });
+
+  function col(nombre, h) { return CABECERAS[nombre].indexOf(h) + 1; }
+  function columna(nombre, h) { return ss.getSheetByName(nombre).getRange(2, col(nombre, h), FILAS - 1, 1); }
+
+  // Casillas de verificación en los campos sí/no
+  ['canjeado'].forEach(function (h) { columna('Clientes', h).insertCheckboxes(); });
+  ['sin_gluten', 'vegano', 'cero_azucar', 'sin_lactosa', 'especial_hoy', 'oferta', 'novedad'].forEach(function (h) {
+    columna('Productos', h).insertCheckboxes();
+  });
+
+  // Sellos: solo números del 0 al 10
+  columna('Clientes', 'sellos').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireNumberBetween(0, MAX_SELLOS).setAllowInvalid(false)
+    .setHelpText('Entre 0 y 10 sellos').build()).setHorizontalAlignment('center');
+  // Resalta las tarjetas completas
+  var clientes = ss.getSheetByName('Clientes');
+  var rSellos = columna('Clientes', 'sellos');
+  clientes.setConditionalFormatRules([
+    SpreadsheetApp.newConditionalFormatRule().whenNumberEqualTo(MAX_SELLOS)
+      .setBackground('#F2B33D').setBold(true).setRanges([rSellos]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenNumberBetween(4, 9)
+      .setBackground('#F7E1C2').setRanges([rSellos]).build()
+  ]);
+  columna('Clientes', 'fecha_completado').setNumberFormat('dd/mm/yyyy');
+  columna('Productos', 'precio').setNumberFormat('#,##0.00 "€"');
+  columna('Encuesta', 'fecha').setNumberFormat('dd/mm/yyyy hh:mm');
+  columna('Pedidos', 'estado').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(['cocina', 'horno', 'listo para recoger', 'entregado'], true).build());
 }
 
 function rellenar(nombre, filas) {
