@@ -715,3 +715,27 @@ img { display: block; max-width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Ajustes de responsive ---------- */
+/* Móvil en horizontal o pantallas bajas: la app no se estira, se queda en una columna centrada */
+@media (max-width: 559px), (max-height: 599px) {
+  .phone { max-width: 480px; margin: 0 auto; box-shadow: 0 0 60px rgba(0,0,0,.5); }
+}
+.ficha-id { font-size: clamp(24px, 8.4vw, 34px); }
+.ficha-nombre { font-size: clamp(17px, 5.2vw, 21px); }
+@media (max-width: 360px) {
+  .foto { width: 64px; height: 64px; }
+  .foto .ico { width: 32px; height: 32px; }
+  .ficha-linea { font-size: 13.5px; }
+  .hero h1 { font-size: 36px; }
+  .prod-crema, .prod-marron { grid-template-columns: 118px 1fr; }
+  .prod-marron.dcha { grid-template-columns: 1fr 118px; }
+  .prod-crema img { width: 118px; height: 96px; }
+  .prod-marron img { width: 118px; height: 100px; }
+  .prod-crema h3, .prod-marron h3 { font-size: 21px; }
+  .tabbar { left: 16px; right: 16px; }
+  .casillas { gap: 14px 7px; }
+  .premio { font-size: 10px; right: -8px; }
+  .premio.esp { width: 54px; font-size: 9px; }
+  .tarjeta-tiempo { padding-left: 20px; }
+}
